@@ -1,0 +1,194 @@
+name: Vowel Counter CI/CD
+
+ 
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+ 
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+ 
+
+permissions:
+  contents: read
+
+ 
+
+jobs:
+
+ 
+
+  # BUILD STAGE
+  build:
+    name: Build C# Application
+    runs-on: ubuntu-latest
+
+ 
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+ 
+
+      - name: Setup .NET SDK 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+ 
+
+      - name: Display .NET version
+        run: dotnet --version
+
+ 
+
+      - name: Restore application dependencies
+        run: dotnet restore VowelCounterApp/VowelCounterApp.csproj
+
+ 
+
+      - name: Build application
+        run: dotnet build VowelCounterApp/VowelCounterApp.csproj --no-restore -c Release
+
+ 
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-files
+          path: VowelCounterApp/bin/Release/
+          if-no-files-found: error
+          retention-days: 7
+
+ 
+
+  # TEST STAGE
+  test:
+    name: Test C# Application
+    runs-on: ubuntu-latest
+    needs: build
+
+ 
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+ 
+
+      - name: Setup .NET SDK 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+ 
+
+      - name: Restore application dependencies
+        run: dotnet restore VowelCounterApp/VowelCounterApp.csproj
+
+ 
+
+      - name: Restore test dependencies
+        run: dotnet restore VowelCounterApp.Tests/VowelCounterApp.Tests.csproj
+
+ 
+
+      - name: Run unit tests
+        run: >
+          dotnet test VowelCounterApp.Tests/VowelCounterApp.Tests.csproj
+          --no-restore
+          --verbosity normal
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory VowelCounterApp.Tests/TestResults
+
+ 
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: VowelCounterApp.Tests/TestResults/
+          if-no-files-found: warn
+          retention-days: 7
+
+ 
+
+  # DEPLOY STAGE - GITHUB PAGES
+  deploy:
+    name: Deploy GitHub Pages
+    runs-on: ubuntu-latest
+    needs: test
+
+ 
+
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+
+ 
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+ 
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+ 
+
+    steps:
+      - name: Create website
+        run: |
+          mkdir -p public
+
+ 
+
+          cat > public/index.html <<EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Vowel Counter App</title>
+          </head>
+          <body>
+            <h1>Vowel Counter App CI/CD</h1>
+            <p>Build and test completed successfully.</p>
+            <p>Commit: ${GITHUB_SHA:0:7}</p>
+            <p>Built with .NET SDK $(dotnet --version).</p>
+          </body>
+          </html>
+          EOF
+
+ 
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+ 
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+
+ 
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
